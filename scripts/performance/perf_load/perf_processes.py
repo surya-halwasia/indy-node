@@ -14,7 +14,7 @@ from datetime import datetime
 import yaml
 import logging
 import shutil
-
+import csv
 from indy import pool
 
 import perf_load
@@ -108,6 +108,8 @@ parser.add_argument('--promotion_shift', default=60, type=int, required=False,
 parser.add_argument('--nodes_untouched', default=0, type=int, required=False,
                     help='Number of nodes to keep them safe from demotions and promotions')
 
+parser.add_argument('--csv_file', default="", type=str, required=False, dest='csv_file',
+                    help='CSV file to save statistics. Default value is empty (no CSV output)')
 
 class LoadRunner:
     def __init__(self, clients=0, genesis_path="~/.indy-cli/networks/sandbox/pool_transactions_genesis",
@@ -115,7 +117,7 @@ class LoadRunner:
                  buff_req=30, out_dir=".", val_sep="|", wallet_key="key", mode="p", pool_config='',
                  sync_mode="freeflow", load_rate=10, out_file="", load_time=0, taa_text="", taa_version="",
                  promotion_shift=60, nodes_untouched=0, ext_set=None, client_runner=LoadClient.run,
-                 log_lvl=logging.INFO, short_stat=False):
+                 log_lvl=logging.INFO, short_stat=False, csv_file=""):
         self._client_runner = client_runner
         self._clients = dict()  # key process future; value ClientRunner
         self._loop = asyncio.get_event_loop()
@@ -146,6 +148,8 @@ class LoadRunner:
         self._promotion_shift = promotion_shift
         self._nodes_untouched = nodes_untouched
         self._ext_set = ext_set
+        self._csv_file = csv_file
+        self._csv_header_written = False
         if pool_config:
             try:
                 self._pool_config = json.loads(pool_config)
@@ -311,6 +315,10 @@ class LoadRunner:
             total_failed += cln.total_failed
             total_nack += cln.total_nack
             total_reject += cln.total_reject
+        
+        current_time = time.perf_counter() - self._start_counter
+
+        self.write_csv_data(current_time, clients, len(self._clients), total_sent, total_succ, total_failed, total_nack, total_reject)
         print_str = "Time {:.2f} Clients {}/{} Sent: {} Succ: {} Failed: {} Nacked: {} Rejected: {}".format(
             time.perf_counter() - self._start_counter, clients, len(self._clients),
             total_sent, total_succ, total_failed, total_nack, total_reject)
@@ -357,6 +365,21 @@ class LoadRunner:
         if self._out_file != sys.stdout:
             self._out_file.close()
 
+    def write_csv_data(self, time, clients, total_clients, total_sent, total_succ, total_failed, total_nack, total_reject):
+        if not self._csv_file:
+            return
+
+        csv_path = os.path.join(self._out_dir, self._csv_file)
+        
+        with open(csv_path, 'a', newline='') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            
+            if not self._csv_header_written:
+                csvwriter.writerow(['Time', 'Clients', 'Sent', 'Succ', 'Failed', 'Nacked', 'Rejected'])
+                self._csv_header_written = True
+            
+            csvwriter.writerow([f"{time:.2f}", f"{clients}/{total_clients}", total_sent, total_succ, total_failed, total_nack, total_reject])
+    
     def screen_stat(self):
         self._logger.debug("close_fs")
         ends = "\n" if self._out_file != sys.stdout else "\r"
@@ -394,6 +417,7 @@ class LoadRunner:
         print("Load rate batches per sec", 1 / self._batch_rate, file=self._out_file)
         print("Ext settings             ", self._ext_set, file=self._out_file)
         print("Save short statistics    ", self._short_stat, file=self._out_file)
+        print("CSV output file          ", self._csv_file, file=self._out_file)
 
         load_client_mode = LoadClient.SendTime
         if self._sync_mode in ['all', 'one']:
@@ -508,5 +532,7 @@ if __name__ == '__main__':
                     dict_args["nodes_untouched"], dict_args["ext_set"],
                     client_runner=LoadClient.run if not dict_args["ext_set"] else LoadClientFees.run,
                     log_lvl=log_lvl,
-                    short_stat=dict_args["short_stat"])
+                    short_stat=dict_args["short_stat"]),
+                    csv_file=dict_args["csv_file"])
+
     tr.load_run()
