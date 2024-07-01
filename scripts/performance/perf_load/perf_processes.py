@@ -532,7 +532,7 @@ if __name__ == '__main__':
                     dict_args["nodes_untouched"], dict_args["ext_set"],
                     client_runner=LoadClient.run if not dict_args["ext_set"] else LoadClientFees.run,
                     log_lvl=log_lvl,
-                    short_stat=dict_args["short_stat"]),
+                    short_stat=dict_args["short_stat"],
                     csv_file=dict_args["csv_file"])
 
     tr.load_run()
